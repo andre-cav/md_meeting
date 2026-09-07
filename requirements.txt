@@ -1,0 +1,4 @@
+PyAudioWPatch==0.2.12.8
+faster-whisper==1.2.1
+numpy>=2.2,<3
+psutil>=7,<8
