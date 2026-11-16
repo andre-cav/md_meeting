@@ -77,10 +77,18 @@ def load_meetings():
     return sorted(result, key=lambda m: m['start'], reverse=True)
 
 
-def enqueue(m):
-    if m['state'] not in ('pending', 'failed'):
+def transcript_path(m, diarize=False):
+    return DATA / m['id'] / ('transcription-speakers.md' if diarize else 'transcription.md')
+
+
+def enqueue(m, diarize=False):
+    if m['state'] not in ('pending', 'failed', 'done'):
         return False
-    m.update(state='queued', error='')
+    if m['state'] == 'done' and transcript_path(m, diarize).exists():
+        return False
+    if diarize and not any(t['file'] == 'computer.wav' for t in m['tracks']):
+        return False
+    m.update(state='queued', error='', diarize=diarize)
     save(m)
     return True
 
@@ -89,6 +97,7 @@ def estimate(meeting, history, fraction=0):
     ratios = [m['processing_seconds'] / m['duration'] for m in history
               if m.get('processing_seconds') and m['duration'] >= 20
               and m.get('model') == meeting['model'] and m.get('state') == 'done'
+              and bool(m.get('diarize')) == bool(meeting.get('diarize'))
               and m.get('microphone') == meeting.get('microphone')]
     if not ratios:
         return 'Estimativa disponível após a primeira transcrição'

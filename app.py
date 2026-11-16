@@ -166,6 +166,7 @@ class App:
             if m['error']:
                 self.label(m['error'], 9, '#a13b30')
             self.action('Transcrever agora', lambda: self.queue_meeting(m), True)
+            self.speaker_option(m)
             self.action('Deixar para depois', self.home)
         elif self.screen == 'library':
             self.label('Reuniões', 18)
@@ -200,10 +201,14 @@ class App:
             self.label(core.estimate(m, self.meetings), 9, MUTED)
             if m['error']:
                 self.label(m['error'][:350], 9, '#a13b30')
-            if m['state'] in ('pending', 'failed'):
-                self.action('Transcrever' if m['state'] == 'pending' else 'Tentar novamente', lambda: self.queue_meeting(m), True)
-            if m['state'] == 'done':
-                self.action('Abrir Markdown', lambda: os.startfile(core.DATA / m['id'] / 'transcription.md'), True)
+            if m['state'] in ('pending', 'failed', 'done') and not core.transcript_path(m).exists():
+                self.action('Transcrever' if m['state'] != 'failed' or m.get('diarize') else 'Tentar novamente',
+                            lambda: self.queue_meeting(m), True)
+            for separate, label in ((False, 'Abrir Markdown'), (True, 'Abrir Markdown com participantes')):
+                path = core.transcript_path(m, separate)
+                if path.exists():
+                    self.action(label, lambda path=path: os.startfile(path), True)
+            self.speaker_option(m)
             self.action('Abrir áudio e informações', lambda: os.startfile(core.DATA / m['id']))
             self.action('Voltar às reuniões', self.library)
         self.update_status()
@@ -225,8 +230,14 @@ class App:
             self.screen = 'detail'
             self.render()
 
-    def queue_meeting(self, meeting):
-        core.enqueue(meeting)
+    def speaker_option(self, meeting):
+        if (meeting['state'] in ('pending', 'failed', 'done')
+                and any(t['file'] == 'computer.wav' for t in meeting['tracks'])
+                and not core.transcript_path(meeting, True).exists()):
+            self.action('Transcrever e separar participantes', lambda: self.queue_meeting(meeting, True))
+
+    def queue_meeting(self, meeting, diarize=False):
+        core.enqueue(meeting, diarize)
         self.home()
 
     def pause_worker(self):
@@ -318,7 +329,7 @@ class App:
     def tick(self):
         try:
             current = time.monotonic()
-            if self.process and not self.paused and self.progress().get('stage', '').startswith('Transcrevendo'):
+            if self.process and not self.paused and self.progress().get('stage', '').startswith(('Transcrevendo', 'Separando')):
                 self.active_seconds += current - self.last_tick
             self.last_tick = current
             while not self.events.empty():
@@ -348,7 +359,7 @@ class App:
                 self.stop_recording()
             if self.process and self.process.poll() is not None:
                 progress = self.progress()
-                success = self.process.returncode == 0 and (core.DATA / self.job['id'] / 'transcription.md').exists()
+                success = self.process.returncode == 0 and core.transcript_path(self.job, self.job.get('diarize')).exists()
                 self.job.update(state='done' if success else 'failed', error='' if success else progress.get('error', 'Transcrição interrompida. Consulte transcription.log.'),
                                 processing_seconds=self.active_seconds)
                 core.save(self.job)

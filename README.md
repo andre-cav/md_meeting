@@ -25,6 +25,20 @@ O primeiro uso do transcritor baixa o modelo `base` do Hugging Face (internet ne
 
 A estimativa aparece depois da primeira transcrição com pelo menos 20 segundos, usando o tempo medido nesta máquina e a mesma combinação de fontes. Download/carregamento inicial e pausas não entram no cálculo. É uma faixa aproximada, não um prazo garantido.
 
+## Separar participantes (experimental)
+
+Instale o motor opcional no ambiente do app:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements-diarization.txt
+```
+
+Depois de salvar o áudio, escolha **Transcrever e separar participantes**. Você também pode usar essa opção nos detalhes de uma reunião antiga em **Reuniões**, se ainda tiver o áudio do computador.
+
+Na primeira execução, o [sherpa-onnx](https://k2-fsa.github.io/sherpa/onnx/speaker-diarization/index.html) baixa dois modelos para o cache local, sem conta ou token. O áudio é processado no computador. O resultado é salvo em **transcription-speakers.md**, separado do Markdown normal. A trilha do microfone continua rotulada como **Microfone**.
+
+Os rótulos `Pessoa 1`, `Pessoa 2` são estimados por reunião. Vozes sobrepostas ou trocas rápidas podem receber um rótulo errado. O modo com participantes tem uma estimativa de tempo separada.
+
 ## Arquivos e recuperação
 
 ```text

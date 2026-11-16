@@ -62,6 +62,27 @@ class AppTests(unittest.TestCase):
         history = [dict(m, state='done', duration=60, processing_seconds=30)]
         self.assertIn('min', core.estimate(m, history))
 
+    def test_diarization_on_existing_meeting_keeps_original(self):
+        import diarization
+        import transcribe
+        m = self.meeting()
+        m['state'] = 'done'
+        original = core.transcript_path(m)
+        original.write_text('Original', encoding='utf-8')
+        self.assertTrue(core.enqueue(m, True))
+        self.assertFalse(core.enqueue(m, True))
+        turn = types.SimpleNamespace(start=.1, end=.7, speaker=1)
+        segments = [types.SimpleNamespace(start=.2, end=.6, text=' Oi. '),
+                    types.SimpleNamespace(start=.8, end=.9, text=' Sem rótulo. ')]
+        model = types.SimpleNamespace(transcribe=lambda *a, **k: (iter(segments), types.SimpleNamespace(duration=1)))
+        fake = types.SimpleNamespace(WhisperModel=lambda *a, **k: model)
+        with patch.dict(sys.modules, {'faster_whisper': fake}), patch.object(diarization, 'detect', return_value=[turn]):
+            transcribe.run(core.DATA / m['id'])
+        result = core.transcript_path(m, True).read_text(encoding='utf-8')
+        self.assertIn('**Pessoa 2:** Oi.', result)
+        self.assertIn('**Participante indefinido:** Sem rótulo.', result)
+        self.assertEqual(original.read_text(encoding='utf-8'), 'Original')
+
     @unittest.skipUnless(sys.platform == 'win32', 'Windows only')
     def test_process_pause_resume_and_job_cleanup(self):
         import psutil
@@ -103,7 +124,7 @@ class AppTests(unittest.TestCase):
                 self.assertGreaterEqual(root.winfo_height(), root.winfo_reqheight())
                 if screen == 'saved':
                     buttons = [x.cget('text') for x in app.body.winfo_children() if isinstance(x, tk.Button)]
-                    self.assertEqual(buttons, ['Transcrever agora', 'Deixar para depois'])
+                    self.assertEqual(buttons, ['Transcrever agora', 'Transcrever e separar participantes', 'Deixar para depois'])
         finally:
             for timer in root.tk.call('after', 'info'):
                 root.after_cancel(timer)

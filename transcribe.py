@@ -19,20 +19,32 @@ def run(folder):
     start = time.process_time()
     segments_out = []
     tracks = m['tracks']
+    separate = m.get('diarize', False)
     if not tracks:
         raise RuntimeError('Esta reunião não possui áudio recuperável.')
     total = len(tracks)
     for index, track in enumerate(tracks):
-        with wave.open(str(folder / track['file'])) as audio:
+        path = folder / track['file']
+        with wave.open(str(path)) as audio:
             if audio.getnframes() == 0:
                 continue
-        atomic_json(progress, dict(fraction=index / total, stage='Transcrevendo ' + track['label'].lower()))
-        segments, info = model.transcribe(str(folder / track['file']), language=m['language'],
+        base = index / total
+        span = 1 / total
+        computer = separate and track['file'] == 'computer.wav'
+        if computer:
+            from diarization import detect, speaker_at
+            turns = detect(path, lambda stage: atomic_json(progress, dict(fraction=base, stage=stage)))
+            base += span / 2
+            span /= 2
+        stage = 'Transcrevendo ' + track['label'].lower()
+        atomic_json(progress, dict(fraction=base, stage=stage))
+        segments, info = model.transcribe(str(path), language=m['language'],
                                          beam_size=1, vad_filter=True, condition_on_previous_text=False)
         for segment in segments:
-            segments_out.append((segment.start, track['label'], segment.text.strip()))
-            atomic_json(progress, dict(fraction=min(.99, (index + segment.end / max(info.duration, 1)) / total),
-                                       stage='Transcrevendo ' + track['label'].lower()))
+            source = speaker_at(segment.start, segment.end, turns) if computer else track['label']
+            segments_out.append((segment.start, source, segment.text.strip()))
+            atomic_json(progress, dict(fraction=min(.99, base + span * segment.end / max(info.duration, .001)),
+                                       stage=stage))
     text = [f"# {m['title']}", '', f"- ID: {m['id']}", f"- Início: {m['start']}",
             f"- Fim: {m['end'] or 'Sessão interrompida'}", f"- Duração: {duration_text(m['duration'])}",
             f"- Modelo: {m['model']} · Idioma: {m['language']}", '', '## Transcrição', '']
@@ -42,7 +54,7 @@ def run(folder):
         text.append('_Nenhuma fala identificada. Confira os arquivos de áudio._')
     temp = folder / 'transcription.tmp'
     temp.write_text('\n'.join(text) + '\n', encoding='utf-8')
-    os.replace(temp, folder / 'transcription.md')
+    os.replace(temp, folder / ('transcription-speakers.md' if separate else 'transcription.md'))
     atomic_json(progress, dict(fraction=1, stage='Concluída', cpu_seconds=time.process_time() - start))
 
 
